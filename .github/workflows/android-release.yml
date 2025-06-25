@@ -1,0 +1,96 @@
+name: Build and Release Android APK
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+        
+    - name: Setup Java JDK
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: '21'
+        
+    - name: Setup Android SDK
+      uses: android-actions/setup-android@v3
+      
+    - name: Install dependencies
+      run: npm ci
+      
+    - name: Build web app
+      run: npm run build
+      
+    - name: Sync Capacitor
+      run: npx cap sync android
+      
+    - name: Build Android APK
+      run: |
+        cd android
+        ./gradlew assembleRelease
+        
+    - name: Get current date
+      id: date
+      run: echo "date=$(date +'%Y-%m-%d-%H-%M')" >> $GITHUB_OUTPUT
+      
+    - name: Get commit hash
+      id: commit
+      run: echo "hash=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+      
+    - name: Create Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: v${{ steps.date.outputs.date }}-${{ steps.commit.outputs.hash }}
+        release_name: jpc-local Android Release ${{ steps.date.outputs.date }}
+        body: |
+          🤖 Automated Android build from commit ${{ steps.commit.outputs.hash }}
+          
+          📱 **jpc-local Android App**
+          - Built from latest main branch
+          - Commit: ${{ github.sha }}
+          - Build date: ${{ steps.date.outputs.date }}
+          
+          📥 **Installation:**
+          1. Download the APK file below
+          2. Enable "Install from unknown sources" on your Android device
+          3. Install the APK
+          
+          🏠 **Features:**
+          - 🎉 Local Ann Arbor events
+          - 🏠 Real estate listings  
+          - 📰 Local news from MLive
+          - 👥 Reddit community posts
+          - 🌤️ Weather information
+          - 🚨 Emergency alerts
+        draft: false
+        prerelease: false
+        
+    - name: Upload APK to Release
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: android/app/build/outputs/apk/release/app-release-unsigned.apk
+        asset_name: jpc-local-${{ steps.date.outputs.date }}-${{ steps.commit.outputs.hash }}.apk
+        asset_content_type: application/vnd.android.package-archive
