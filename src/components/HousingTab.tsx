@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, Text, Flex, Loader } from '@aws-amplify/ui-react';
-import maplibregl from 'maplibre-gl';
+import { MapView } from '@aws-amplify/ui-react-geo';
 
 interface Property {
   id: string;
@@ -23,57 +23,18 @@ interface Property {
   };
 }
 
-// Simple Map Component using MapLibre
-const MapComponent: React.FC<{ coordinates: { latitude: number; longitude: number }; address: string }> = ({ coordinates, address }) => {
-  const mapContainer = useRef<HTMLDivElement>(null);
-  const map = useRef<maplibregl.Map | null>(null);
-
-  useEffect(() => {
-    if (map.current || !mapContainer.current) return; // Initialize map only once
-
-    map.current = new maplibregl.Map({
-      container: mapContainer.current,
-      style: {
-        version: 8,
-        sources: {
-          'osm-tiles': {
-            type: 'raster',
-            tiles: [
-              'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
-            ],
-            tileSize: 256,
-            attribution: '© OpenStreetMap contributors'
-          }
-        },
-        layers: [
-          {
-            id: 'osm-tiles',
-            type: 'raster',
-            source: 'osm-tiles',
-            minzoom: 0,
-            maxzoom: 19
-          }
-        ]
-      },
-      center: [coordinates.longitude, coordinates.latitude],
-      zoom: 12, // Reduced zoom to show more context
-    });
-
-    // Add a marker for the property
-    new maplibregl.Marker({ color: '#3b82f6' })
-      .setLngLat([coordinates.longitude, coordinates.latitude])
-      .setPopup(new maplibregl.Popup().setHTML(`<div style="font-size: 12px; max-width: 200px; color: #000000; background: white; padding: 4px;">${address}</div>`))
-      .addTo(map.current);
-
-    return () => {
-      if (map.current) {
-        map.current.remove();
-        map.current = null;
-      }
-    };
-  }, [coordinates, address]);
-
-  return <div ref={mapContainer} style={{ width: '100%', height: '100%' }} />;
+// Simple Map Component using AWS Amplify MapView
+const MapComponent: React.FC<{ coordinates: { latitude: number; longitude: number } }> = ({ coordinates }) => {
+  return (
+    <MapView
+      initialViewState={{
+        latitude: coordinates.latitude,
+        longitude: coordinates.longitude,
+        zoom: 12,
+      }}
+      style={{ width: '100%', height: '100%' }}
+    />
+  );
 };
 
 const HousingTab: React.FC = () => {
@@ -81,7 +42,7 @@ const HousingTab: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Simple geocoding function using a free service with rate limiting
+  // Simple geocoding function using Nominatim (for now, until AWS Location Service is properly configured)
   const geocodeAddress = async (address: string): Promise<{ latitude: number; longitude: number } | null> => {
     try {
       // Use Nominatim (OpenStreetMap) for free geocoding
@@ -211,45 +172,27 @@ const HousingTab: React.FC = () => {
       }
     }
 
-    // Now geocode all addresses in parallel with batching to respect rate limits
+    // Now geocode all addresses in parallel using AWS Location Service
     console.log(`Starting parallel geocoding for ${parsedProperties.length} properties`);
     
-    // Process in batches of 5 to be respectful to the geocoding service
-    const batchSize = 5;
-    const batches = [];
-    for (let i = 0; i < parsedProperties.length; i += batchSize) {
-      batches.push(parsedProperties.slice(i, i + batchSize));
-    }
-
-    const allResults: { index: number; coordinates: { latitude: number; longitude: number } | null }[] = [];
-    
-    for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
-      const batch = batches[batchIndex];
-      const batchPromises = batch.map(async (property, batchItemIndex) => {
-        const globalIndex = batchIndex * batchSize + batchItemIndex;
-        if (property.address) {
-          try {
-            const coordinates = await geocodeAddress(property.address);
-            return { index: globalIndex, coordinates };
-          } catch (error) {
-            console.error(`Geocoding failed for property ${globalIndex}:`, property.address, error);
-            return { index: globalIndex, coordinates: null };
-          }
+    const geocodingPromises = parsedProperties.map(async (property, index) => {
+      if (property.address) {
+        try {
+          const coordinates = await geocodeAddress(property.address);
+          return { index, coordinates };
+        } catch (error) {
+          console.error(`Geocoding failed for property ${index}:`, property.address, error);
+          return { index, coordinates: null };
         }
-        return { index: globalIndex, coordinates: null };
-      });
-
-      const batchResults = await Promise.all(batchPromises);
-      allResults.push(...batchResults);
-      
-      // Small delay between batches to be respectful to the service
-      if (batchIndex < batches.length - 1) {
-        await new Promise(resolve => setTimeout(resolve, 200));
       }
-    }
+      return { index, coordinates: null };
+    });
+
+    // Wait for all geocoding requests to complete
+    const geocodingResults = await Promise.all(geocodingPromises);
     
     // Apply the coordinates back to the properties
-    allResults.forEach(({ index, coordinates }) => {
+    geocodingResults.forEach(({ index, coordinates }) => {
       if (coordinates && parsedProperties[index]) {
         parsedProperties[index].coordinates = coordinates;
       }
@@ -465,8 +408,7 @@ const HousingTab: React.FC = () => {
                     border: '1px solid #e2e8f0'
                   }}>
                     <MapComponent 
-                      coordinates={property.coordinates} 
-                      address={property.address}
+                      coordinates={property.coordinates}
                     />
                   </div>
                 )}
