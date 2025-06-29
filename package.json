@@ -8,7 +8,10 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "dev-ios": "npm run build && cap sync && cap copy ios && cap open ios"
+    "dev-ios": "npm run build && cap sync && cap copy ios && cap open ios",
+    "prod-config": "ampx generate outputs --app-id d1kon8yb3zn8uc --branch main --profile personal",
+    "ios": "npm run prod-config && npm run dev-ios"
+
   },
   "dependencies": {
     "@aws-amplify/geo": "^3.0.82",
