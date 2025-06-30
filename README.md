@@ -18,7 +18,7 @@ This project is a React application built with TypeScript, Vite, and AWS Amplify
   - Alert titles with appropriate emojis
   - Auto-refreshes every 5 minutes
 
-- **Content Tabs**: A tabbed interface with six main categories and URL routing:
+- **Content Tabs**: A tabbed interface with seven main categories and URL routing:
   - 🎉 **Events**: Local events and activities with infinite scroll (`/events`)
     - Shows only events with images for better visual experience
     - Mobile-optimized card layout with prominent images
@@ -29,6 +29,13 @@ This project is a React application built with TypeScript, Vite, and AWS Amplify
     - Property details including price, bedrooms, bathrooms, square footage
     - Status indicators (NEW, PRICE REDUCED, SOLD, PENDING)
     - Mobile-optimized property cards with organized information
+    - Auto-refreshes every 30 minutes
+  - 🛍️ **For Sale**: Craigslist marketplace items (`/forsale`)
+    - Local Craigslist listings from Ann Arbor area
+    - Item details including price, location, category, and description
+    - Free items highlighted with special badges
+    - Category-based color coding for easy identification
+    - Direct links to view items on Craigslist
     - Auto-refreshes every 30 minutes
   - 📰 **News**: Local news and updates (`/news`)
     - Local Ann Arbor news from MLive.com
@@ -58,6 +65,7 @@ This project is a React application built with TypeScript, Vite, and AWS Amplify
 - **Real Estate API** - RSS feed from https://rss-feeds.jpc.io/api/realestate
 - **Reddit API** - RSS feed from https://rss-feeds.jpc.io/api/reddit
 - **News API** - RSS feed from https://rss-feeds.jpc.io/api/mlive
+- **Craigslist API** - RSS feed from https://rss-feeds.jpc.io/api/craigslist
 
 ## Getting Started
 
@@ -90,6 +98,7 @@ src/
 │   ├── MainTabs.tsx             # Main tabs navigation component
 │   ├── EventsTab.tsx            # Events tab content
 │   ├── HousingTab.tsx           # Housing tab content
+│   ├── ForSaleTab.tsx           # For Sale tab content
 │   ├── NewsTab.tsx              # News tab content
 │   ├── PoliticsTab.tsx          # Politics tab content
 │   ├── SocialTab.tsx            # Social tab content

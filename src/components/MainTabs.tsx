@@ -7,6 +7,7 @@ import NewsTab from './NewsTab';
 import PoliticsTab from './PoliticsTab';
 import SocialTab from './SocialTab';
 import EducationTab from './EducationTab';
+import ForSaleTab from './ForSaleTab';
 
 const MainTabs: React.FC = () => {
   const location = useLocation();
@@ -19,6 +20,7 @@ const MainTabs: React.FC = () => {
   const tabConfig = [
     { key: 'events', icon: '🎉', label: 'Events', component: <EventsTab /> },
     { key: 'housing', icon: '🏠', label: 'Housing', component: <HousingTab /> },
+    { key: 'forsale', icon: '🛍️', label: 'For Sale', component: <ForSaleTab /> },
     { key: 'news', icon: '📰', label: 'News', component: <NewsTab /> },
     { key: 'politics', icon: '🏛️', label: 'Politics', component: <PoliticsTab /> },
     { key: 'social', icon: '👥', label: 'Social', component: <SocialTab /> },

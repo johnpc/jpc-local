@@ -44,6 +44,7 @@ function App() {
             <Route path="/" element={<Navigate to="/events" replace />} />
             <Route path="/events" element={<MainTabs />} />
             <Route path="/housing" element={<MainTabs />} />
+            <Route path="/forsale" element={<MainTabs />} />
             <Route path="/news" element={<MainTabs />} />
             <Route path="/politics" element={<MainTabs />} />
             <Route path="/social" element={<MainTabs />} />
