@@ -11,6 +11,7 @@ interface RedditPost {
   url: string;
   selfText: string;
   thumbnail: string;
+  imageUrl: string; // Add image URL field
   created: string;
   flair: string;
   postType: string; // text, link, image, etc.
@@ -28,117 +29,237 @@ const SocialTab: React.FC = () => {
   const observerRef = useRef<IntersectionObserver | null>(null);
 
   const parseRedditData = (xmlDoc: Document): RedditPost[] => {
-    // Try both methods to get items
+    console.log('Parsing Reddit XML document...');
+    
+    // Try both RSS (item) and Atom (entry) formats
     let items = xmlDoc.getElementsByTagName('item');
-    console.log(`Reddit: getElementsByTagName found: ${items.length} items`);
+    let isAtomFeed = false;
     
     if (items.length === 0) {
-      const itemsNodeList = xmlDoc.querySelectorAll('item');
-      console.log(`Reddit: querySelectorAll found: ${itemsNodeList.length} items`);
-      items = itemsNodeList as unknown as HTMLCollectionOf<Element>;
+      items = xmlDoc.getElementsByTagName('entry');
+      isAtomFeed = true;
+      console.log('Using Atom feed format');
+    } else {
+      console.log('Using RSS feed format');
     }
+    
+    console.log(`Found ${items.length} ${isAtomFeed ? 'entries' : 'items'}`);
     
     const parsedPosts: RedditPost[] = [];
 
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i];
-      const title = item.getElementsByTagName('title')[0]?.textContent || '';
-      const description = item.getElementsByTagName('description')[0]?.textContent || '';
-      const link = item.getElementsByTagName('link')[0]?.textContent || '';
-      const pubDate = item.getElementsByTagName('pubDate')[0]?.textContent || '';
-
-      // Parse the HTML content within CDATA
-      const htmlParser = new DOMParser();
-      const htmlDoc = htmlParser.parseFromString(description, 'text/html');
-
-      // Extract post details from title (format: "🔗 Snow removal update from the city (👌 81 • 💬 11)")
-      const cleanTitle = title.replace(/^[\u{1F300}-\u{1F9FF}]+\s*/u, '').replace(/\s*\([\u{1F300}-\u{1F9FF}\d\s•]+\)$/u, '');
-      
-      // Extract score and comments from title
-      const scoreMatch = title.match(/👌\s*(\d+)/);
-      const commentsMatch = title.match(/💬\s*(\d+)/);
-      const score = scoreMatch ? parseInt(scoreMatch[1]) : 0;
-      const comments = commentsMatch ? parseInt(commentsMatch[1]) : 0;
-
-      // Extract author from HTML
-      let author = '';
-      const authorSpan = htmlDoc.querySelector('span[style*="background: #ff4500"]');
-      if (authorSpan) {
-        author = authorSpan.textContent?.replace('👤 u/', '') || '';
-      }
-
-      // Extract flair if present
-      let flair = '';
-      const flairSpans = htmlDoc.querySelectorAll('span[style*="background: #"]');
-      flairSpans.forEach(span => {
-        const text = span.textContent || '';
-        if (!text.includes('👤 u/') && !text.includes('Score') && !text.includes('Comments')) {
-          flair = text.trim();
-        }
-      });
-
-      // Extract self text content
-      let selfText = '';
-      const contentDiv = htmlDoc.querySelector('div[style*="background: #f8f9fa"]');
-      if (contentDiv) {
-        const textContent = contentDiv.textContent || '';
-        selfText = textContent.replace(/^(Post Content|Self Text)\s*/, '').trim();
-      }
-
-      // Determine post type from title emoji
-      let postType = 'text';
-      if (title.startsWith('🔗')) postType = 'link';
-      else if (title.startsWith('🖼️')) postType = 'image';
-      else if (title.startsWith('📊')) postType = 'poll';
-      else if (title.startsWith('📝')) postType = 'text';
-
-      // Extract domain from link
-      let domain = '';
+    for (let i = 0; i < Math.min(items.length, 50); i++) { // Limit to 50 posts for performance
       try {
-        if (link && !link.includes('reddit.com')) {
-          domain = new URL(link).hostname;
+        const item = items[i];
+        
+        // Handle both RSS and Atom formats
+        const title = item.getElementsByTagName('title')[0]?.textContent?.trim() || `Post ${i + 1}`;
+        
+        // Get content/description
+        const contentElement = isAtomFeed 
+          ? item.getElementsByTagName('content')[0]
+          : item.getElementsByTagName('description')[0];
+        const content = contentElement?.textContent || '';
+        
+        // Get link
+        const linkElement = item.getElementsByTagName('link')[0];
+        const link = isAtomFeed 
+          ? linkElement?.getAttribute('href') || linkElement?.textContent || ''
+          : linkElement?.textContent || '';
+        
+        // Get date
+        const dateElement = isAtomFeed 
+          ? (item.getElementsByTagName('updated')[0] || item.getElementsByTagName('published')[0])
+          : item.getElementsByTagName('pubDate')[0];
+        const pubDate = dateElement?.textContent || '';
+
+        // Extract author - try multiple methods with robust fallbacks
+        let author = 'Unknown';
+        
+        // Method 1: Try XML DOM parsing for Atom feeds
+        if (isAtomFeed) {
+          const authorElement = item.getElementsByTagName('author')[0];
+          if (authorElement) {
+            const authorName = authorElement.getElementsByTagName('n')[0]?.textContent || '';
+            if (authorName) {
+              author = authorName.replace('/u/', '').replace('u/', '');
+            }
+          }
         }
-      } catch {
-        // Invalid URL, ignore
+        
+        // Method 2: If still unknown, use regex on the raw XML string
+        if (author === 'Unknown') {
+          // Get the raw XML string of this item
+          const serializer = new XMLSerializer();
+          const itemXML = serializer.serializeToString(item);
+          
+          // Try different patterns to find username, ordered by specificity
+          const patterns = [
+            /<n>\/u\/([^<]+)<\/n>/,         // "<n>/u/username</n>" (most specific)
+            /- \(\/u\/([^)]+)\)/,           // "- (/u/username)" in content
+            /\(\/u\/([^)]+)\)/,            // "(/u/username)" anywhere
+            /\/u\/([a-zA-Z0-9_-]+)/,       // "/u/username" anywhere
+            /u\/([a-zA-Z0-9_-]+)/          // "u/username" anywhere (least specific)
+          ];
+          
+          for (const pattern of patterns) {
+            const match = itemXML.match(pattern);
+            if (match && match[1] && match[1].length > 0) {
+              author = match[1];
+              break;
+            }
+          }
+        }
+        
+        // Method 3: Final fallback - try parsing the content HTML directly
+        if (author === 'Unknown' && content) {
+          const htmlParser = new DOMParser();
+          const htmlDoc = htmlParser.parseFromString(content, 'text/html');
+          const spans = htmlDoc.querySelectorAll('span');
+          
+          for (const span of spans) {
+            const spanText = span.textContent || '';
+            const match = spanText.match(/- \(\/u\/([^)]+)\)/);
+            if (match && match[1]) {
+              author = match[1];
+              break;
+            }
+          }
+        }
+        
+        // Clean up author name
+        if (author !== 'Unknown') {
+          author = author.replace(/^\/+|\/+$/g, '').trim(); // Remove leading/trailing slashes and whitespace
+        }
+
+        // Extract content and images from HTML
+        let selfText = '';
+        let imageUrl = '';
+        let hasImage = false;
+        
+        if (content) {
+          try {
+            const htmlParser = new DOMParser();
+            const htmlDoc = htmlParser.parseFromString(content, 'text/html');
+            
+            // Check for images first
+            const images = htmlDoc.querySelectorAll('img');
+            if (images.length > 0) {
+              hasImage = true;
+              imageUrl = images[0].getAttribute('src') || '';
+            }
+            
+            // Get text content from div > p structure, excluding metadata
+            const contentDivs = htmlDoc.querySelectorAll('div');
+            for (const div of contentDivs) {
+              const paragraphs = div.querySelectorAll('p');
+              let divText = '';
+              
+              for (const p of paragraphs) {
+                const text = p.textContent?.trim() || '';
+                if (text && !text.includes('(/u/') && !text.includes('- (') && text.length > 10) {
+                  divText += text + ' ';
+                }
+              }
+              
+              if (divText.trim().length > 20) {
+                selfText = divText.trim();
+                break;
+              }
+            }
+            
+            // If no text found in divs, try direct paragraphs
+            if (!selfText) {
+              const paragraphs = htmlDoc.querySelectorAll('p');
+              for (const p of paragraphs) {
+                const text = p.textContent?.trim() || '';
+                if (text && !text.includes('(/u/') && !text.includes('- (') && text.length > 20) {
+                  selfText = text;
+                  break;
+                }
+              }
+            }
+            
+            // Limit text length
+            if (selfText.length > 400) {
+              selfText = selfText.substring(0, 400) + '...';
+            }
+            
+          } catch (e) {
+            console.warn('Error parsing HTML content:', e);
+          }
+        }
+
+        // Determine post type
+        let postType = 'text';
+        let domain = '';
+        
+        if (hasImage || (content && (content.includes('<img') || content.includes('preview.redd.it')))) {
+          postType = 'image';
+        } else if (link && !link.includes('reddit.com/r/')) {
+          postType = 'link';
+          try {
+            domain = new URL(link).hostname;
+          } catch {
+            // Invalid URL, ignore
+          }
+        }
+
+        const post: RedditPost = {
+          id: isAtomFeed ? (item.getElementsByTagName('id')[0]?.textContent || `entry-${i}`) : `item-${i}`,
+          title: title,
+          author: author,
+          score: 0, // Not available in basic feeds
+          comments: 0, // Not available in basic feeds
+          subreddit: 'annarbor',
+          url: link,
+          selfText: selfText,
+          thumbnail: '',
+          imageUrl: imageUrl, // Add the extracted image URL
+          created: pubDate,
+          flair: '',
+          postType: postType,
+          domain: domain,
+          permalink: link.includes('reddit.com') ? link : `https://reddit.com/r/annarbor`
+        };
+
+        parsedPosts.push(post);
+        
+      } catch (error) {
+        console.warn(`Error parsing post ${i}:`, error);
+        continue;
       }
-
-      const post: RedditPost = {
-        id: `${i}-${Date.now()}`,
-        title: cleanTitle,
-        author,
-        score,
-        comments,
-        subreddit: 'annarbor',
-        url: link,
-        selfText,
-        thumbnail: '',
-        created: pubDate,
-        flair,
-        postType,
-        domain,
-        permalink: link.includes('reddit.com') ? link : `https://reddit.com/r/annarbor`
-      };
-
-      parsedPosts.push(post);
     }
 
-    console.log(`Parsed ${parsedPosts.length} Reddit posts`);
+    console.log(`Successfully parsed ${parsedPosts.length} Reddit posts`);
     return parsedPosts;
   };
 
   const fetchPosts = useCallback(async (pageNum: number = 0) => {
     try {
+      console.log(`Fetching Reddit posts, page ${pageNum}...`);
+      
       if (pageNum === 0) {
         setLoading(true);
+        setError(null);
       } else {
         setLoadingMore(true);
       }
 
       const response = await fetch(`https://rss-feeds.jpc.io/api/reddit?subreddit=annarbor&sort=new&limit=100&_t=${Date.now()}`);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
       const xmlText = await response.text();
       
       console.log('Reddit XML response length:', xmlText.length);
       console.log('Number of <item> tags in response:', (xmlText.match(/<item>/g) || []).length);
+      console.log('Number of <entry> tags in response:', (xmlText.match(/<entry>/g) || []).length);
+
+      if (xmlText.length < 100) {
+        throw new Error('Received empty or invalid response from Reddit API');
+      }
 
       // Clean the XML to fix malformed entities
       const cleanedXml = xmlText
@@ -148,6 +269,7 @@ const SocialTab: React.FC = () => {
       const parser = new DOMParser();
       const xmlDoc = parser.parseFromString(cleanedXml, 'application/xml');
       
+      // Check for XML parsing errors
       const parserError = xmlDoc.querySelector('parsererror');
       if (parserError) {
         console.error('Reddit XML parsing error:', parserError.textContent);
@@ -155,6 +277,10 @@ const SocialTab: React.FC = () => {
       }
 
       const newPosts = parseRedditData(xmlDoc);
+      
+      if (newPosts.length === 0) {
+        throw new Error('No posts found in Reddit feed');
+      }
       
       // Simulate pagination by slicing the results
       const itemsPerPage = 20;
@@ -170,8 +296,11 @@ const SocialTab: React.FC = () => {
 
       setHasMore(endIndex < newPosts.length);
       
+      console.log(`Successfully loaded ${pagePosts.length} posts for page ${pageNum}`);
+      
     } catch (err) {
-      setError('Failed to fetch Reddit posts');
+      const errorMessage = err instanceof Error ? err.message : 'Failed to fetch Reddit posts';
+      setError(errorMessage);
       console.error('Reddit fetch error:', err);
     } finally {
       setLoading(false);
@@ -259,7 +388,25 @@ const SocialTab: React.FC = () => {
   if (error) {
     return (
       <Card padding="2rem">
-        <Text color="red.80">⚠️ {error}</Text>
+        <Flex direction="column" alignItems="center" gap="1rem">
+          <Text color="red.80">⚠️ {error}</Text>
+          <button 
+            onClick={() => {
+              setError(null);
+              fetchPosts(0);
+            }}
+            style={{
+              padding: '0.5rem 1rem',
+              backgroundColor: '#6366f1',
+              color: 'white',
+              border: 'none',
+              borderRadius: '6px',
+              cursor: 'pointer'
+            }}
+          >
+            Try Again
+          </button>
+        </Flex>
       </Card>
     );
   }
@@ -314,7 +461,7 @@ const SocialTab: React.FC = () => {
                       marginBottom: '0.5rem'
                     }}>
                       <Text fontSize="0.75rem" color="gray.70">
-                        👤 u/{post.author}
+                        👤 {post.author !== 'Unknown' ? `u/${post.author}` : 'Anonymous'}
                       </Text>
                       <Text fontSize="0.75rem" color="gray.70">
                         🕐 {formatTimeAgo(post.created)}
@@ -352,6 +499,32 @@ const SocialTab: React.FC = () => {
                   </div>
                 )}
                 
+                {/* Image display for image posts */}
+                {post.imageUrl && (
+                  <div style={{ 
+                    backgroundColor: '#f8fafc', 
+                    padding: '0.5rem', 
+                    borderRadius: '8px',
+                    border: '1px solid #e2e8f0'
+                  }}>
+                    <img 
+                      src={post.imageUrl} 
+                      alt="Reddit post image"
+                      style={{
+                        width: '100%',
+                        maxWidth: '500px',
+                        height: 'auto',
+                        borderRadius: '6px',
+                        display: 'block'
+                      }}
+                      onError={(e) => {
+                        // Hide image if it fails to load
+                        (e.target as HTMLImageElement).style.display = 'none';
+                      }}
+                    />
+                  </div>
+                )}
+                
                 {/* External link domain */}
                 {post.domain && (
                   <div style={{ 
@@ -383,18 +556,32 @@ const SocialTab: React.FC = () => {
                       borderRadius: '12px',
                       fontWeight: 'medium'
                     }}>
-                      👌 {post.score}
+                      {getPostTypeIcon(post.postType)} {post.postType}
                     </span>
-                    <span style={{
-                      fontSize: '0.75rem',
-                      backgroundColor: '#f0f9ff',
-                      color: '#0369a1',
-                      padding: '0.25rem 0.5rem',
-                      borderRadius: '12px',
-                      fontWeight: 'medium'
-                    }}>
-                      💬 {post.comments}
-                    </span>
+                    {post.score > 0 && (
+                      <span style={{
+                        fontSize: '0.75rem',
+                        backgroundColor: '#f0f9ff',
+                        color: '#0369a1',
+                        padding: '0.25rem 0.5rem',
+                        borderRadius: '12px',
+                        fontWeight: 'medium'
+                      }}>
+                        👌 {post.score}
+                      </span>
+                    )}
+                    {post.comments > 0 && (
+                      <span style={{
+                        fontSize: '0.75rem',
+                        backgroundColor: '#f0f9ff',
+                        color: '#0369a1',
+                        padding: '0.25rem 0.5rem',
+                        borderRadius: '12px',
+                        fontWeight: 'medium'
+                      }}>
+                        💬 {post.comments}
+                      </span>
+                    )}
                   </div>
                   
                   <a 

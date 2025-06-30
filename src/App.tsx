@@ -51,6 +51,36 @@ function App() {
             <Route path="/education" element={<MainTabs />} />
             <Route path="*" element={<Navigate to="/events" replace />} />
           </Routes>
+
+          {/* Footer with support email */}
+          <footer style={{
+            marginTop: '2rem',
+            padding: '1.5rem',
+            backgroundColor: '#f3f4f6',
+            borderTop: '1px solid #e5e7eb',
+            textAlign: 'center',
+            width: '100%',
+            boxSizing: 'border-box'
+          }}>
+            <div style={{
+              fontSize: '0.875rem',
+              color: '#6b7280'
+            }}>
+              Need help? Contact support at{' '}
+              <a 
+                href="mailto:john@johncorser.com"
+                style={{
+                  color: '#3b82f6',
+                  textDecoration: 'none',
+                  fontWeight: '500'
+                }}
+                onMouseOver={(e) => e.currentTarget.style.textDecoration = 'underline'}
+                onMouseOut={(e) => e.currentTarget.style.textDecoration = 'none'}
+              >
+                john@johncorser.com
+              </a>
+            </div>
+          </footer>
       </div>
     </ThemeProvider>
     </Router>
